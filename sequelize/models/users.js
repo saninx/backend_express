@@ -30,22 +30,33 @@ module.exports = (sequelize, DataTypes) => {
       email: DataTypes.STRING,
       tel: DataTypes.INTEGER,
       adresse: DataTypes.STRING,
+      photo: DataTypes.STRING,
       cnx_date: DataTypes.DATE,
       dcnx_date: DataTypes.DATE,
+      key: DataTypes.STRING,
+      key_validity: DataTypes.DATE,
     },
     {
       indexes: [
         // Create a unique index on email
         {
           unique: true,
-          fields: ["email", "user_uuid", "id"],
+          fields: ["email"],
+        },
+        {
+          unique: true,
+          fields: ["id"],
+        },
+        {
+          unique: true,
+          fields: ["user_uuid"],
         },
 
         // A BTREE index with a ordered field
         {
           name: "user_index",
           method: "BTREE",
-          fields: ["id", "user_uuid", "email"],
+          fields: ["id"],
         },
       ],
       sequelize,

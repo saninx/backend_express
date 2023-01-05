@@ -4,30 +4,23 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable("profils", {
+    await queryInterface.createTable("eltmenus", {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
         type: Sequelize.INTEGER,
       },
-      code: {
+      elt_titre: {
         type: Sequelize.STRING,
       },
-      description: {
-        type: Sequelize.STRING,
-      },
-      createdAt: {
-        allowNull: false,
-        type: Sequelize.DATE,
-      },
-      updatedAt: {
-        allowNull: false,
-        type: Sequelize.DATE,
+      menus_id: {
+        type: Sequelize.INTEGER,
+        references: { model: "menus", key: "id" },
       },
     });
   },
   async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable("profils");
+    await queryInterface.dropTable("eltmenus");
   },
 };

@@ -41,10 +41,19 @@ module.exports = {
       adresse: {
         type: Sequelize.STRING,
       },
+      photo: {
+        type: Sequelize.STRING,
+      },
       cnx_date: {
         type: Sequelize.DATE,
       },
       dcnx_date: {
+        type: Sequelize.DATE,
+      },
+      key: {
+        type: Sequelize.STRING,
+      },
+      key_validity: {
         type: Sequelize.DATE,
       },
       created_at: {
