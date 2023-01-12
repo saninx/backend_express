@@ -1,9 +1,10 @@
-const db = require("./../db/connexion.js");
-const promisify = require("util-promisify");
+/** @format */
+
+// const promisify = require("util-promisify");
 const AppOpeError = require("../utils/appOpeErrors.js");
 
 // transformer la methode query en promesse
-const query = promisify(db.query).bind(db);
+// const query = promisify(db.query).bind(db);
 
 // Param middleware pour le contrôle de l'ID
 /*exports.checkID = (req, res, next, val) => {

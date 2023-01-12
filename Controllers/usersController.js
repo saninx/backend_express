@@ -1,13 +1,13 @@
 /** @format */
 
-const db = require("./../db/connexion.js");
-const promisify = require("util-promisify");
+// const promisify = require("util-promisify");
 const AppOpeError = require("../utils/appOpeErrors.js");
 const multer = require("multer");
 const sharp = require("sharp");
+const { Users } = require("../sequelize/models");
 
 // transformer la methode query en promesse
-const query = promisify(db.query).bind(db);
+// const query = promisify(db.query).bind(db);
 
 // Multer storage pour stocker les fichiers images sur le disque au cas ou on n'utilise pas le package "sharp" pour redimensionner le fichier
 // const multerStorage = multer.diskStorage({

@@ -24,7 +24,7 @@ module.exports = {
       prenoms: {
         type: Sequelize.STRING,
       },
-      profils_id: {
+      profil_id: {
         type: Sequelize.INTEGER,
         references: {
           model: "profils",
@@ -36,7 +36,7 @@ module.exports = {
         type: Sequelize.STRING,
       },
       tel: {
-        type: Sequelize.INTEGER,
+        type: Sequelize.STRING,
       },
       adresse: {
         type: Sequelize.STRING,

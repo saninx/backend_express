@@ -17,10 +17,10 @@ dotenv.config({ path: "./config.env" });
 
 // fonction de connexion à la base de données
 const connectDb = async () => {
-  console.log("Connexion à la base de données.");
+  console.log("Connexion à la base de données...");
   try {
     await sequelize.authenticate();
-    console.log("Base de données connectée.", error);
+    console.log("Base de données connectée.");
   } catch (error) {
     console.log("Echec connexion à la base de données.", error);
     process.exit(1);

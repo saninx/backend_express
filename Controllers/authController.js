@@ -1,16 +1,17 @@
 /** @format */
 
-const db = require("./../db/connexion.js");
 const promisify = require("util-promisify");
+
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const AppOpeError = require("../utils/appOpeErrors.js");
 const crypto = require("crypto");
 const Email = require("./../utils/email.js");
 const moment = require("moment");
+const { Users } = require("../sequelize/models");
 
 // transformer la methode query en promesse
-const query = promisify(db.query).bind(db);
+// const query = promisify(db.query).bind(db);
 
 //Génération de token
 const generPassword = () => {
@@ -42,20 +43,18 @@ const GenToken = (id) => {
 
 // Option des cookies
 const cookieOptions = {
-  expires: new Date(
-    Date.now() + process.env.JWT_COOKIE_EXPIRED * 24 * 60 * 60 * 1000
-  ),
+  expires: Date.now() + process.env.JWT_COOKIE_EXPIRED * 24 * 60 * 60 * 1000,
   httpOnly: true,
 };
 if (process.env.NODE_ENV === "production") cookieOptions.secure = true;
 
 // fonction d'Envoi du token
 const creatSendToken = (user, statusCode, res) => {
-  const token = GenToken(user.user_id);
+  const token = GenToken(user.id);
   // Envoyer le token par cookie
   res.cookie("jwt", token, cookieOptions);
 
-  user.user_pwd = undefined;
+  user.password = undefined;
   res.status(statusCode).json({
     status: "success",
     token,
@@ -69,18 +68,31 @@ const creatSendToken = (user, statusCode, res) => {
 exports.signup = async (req, res, next) => {
   try {
     // Destructuring
-    req.body.pwdcrypt = await bcrypt.hash(req.body.pwd, 12);
-    const { nom, mail, pwdcrypt, tel, poste, photo, profil } = req.body;
-    // Requete
-    let sql =
-      "INSERT INTO user(user_nom, user_email, user_pwd, user_tel, user_poste, user_photo, user_profil) VALUES(?,?,?,?,?,?,?)";
-    let data = [nom, mail, pwdcrypt, tel, poste, photo, profil];
-    // Execution de la requete
-    let rows = await query(sql, data);
+    req.body.pwdcrypt = await bcrypt.hash(req.body.password, 12);
+    const { nom, prenoms, profil, email, tel, adresse, pwdcrypt } = req.body;
+    // Créer l'utilisateur s'il n'existe pas l'email
+    const [rows, created] = await Users.findOrCreate({
+      where: {
+        email: email,
+      },
+      defaults: {
+        password: pwdcrypt,
+        nom: nom,
+        prenoms: prenoms,
+        profil_id: profil,
+        tel: tel,
+        adresse: adresse,
+        user_uuid: crypto.randomUUID(),
+      },
+    });
+    // erreur en cas ou l'email existe déjà
+    if (!created) {
+      return next(new AppOpeError("Email déjà utilisée.", 400));
+    }
     // Response
-    res.status(200).json({
+    res.status(201).json({
       status: "success",
-      message: "Enregistré",
+      message: "utilisateur enregistré",
       data: rows,
     });
   } catch (error) {
@@ -94,15 +106,13 @@ exports.login = async (req, res, next) => {
     // Destructuring
     const { mail, pwd } = req.body;
     // Requete
-    let sql = "SELECT * FROM user WHERE user_email = ?";
-    let data = [mail];
-    let rows = await query(sql, data);
+    const rows = await Users.findOne({ where: { email: mail } });
     // Controler utilisateur et password
-    if (rows.length === 0 || !(await bcrypt.compare(pwd, rows[0].user_pwd))) {
+    if (rows === null || !(await bcrypt.compare(pwd, rows.password))) {
       return next(new AppOpeError("Email ou mot de passe incorrects"), 401);
     }
     // Générer et envoyer le token
-    creatSendToken(rows[0], 200, res);
+    creatSendToken(rows, 200, res);
   } catch (error) {
     return next(new AppOpeError(error, 404));
   }
@@ -126,16 +136,11 @@ exports.auth = async (req, res, next) => {
 
     // Valider le token
     const decode = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
-
-    // Vérifier si l'utilisateur existe
-    let sql = "SELECT COUNT(user_id) as nbuser FROM user WHERE user_id = ?";
     let data = [decode.id];
-    let rows = await query(sql, data);
-    if (rows.length === 0) {
-      return next(
-        new AppOpeError("Droits insuffisants, utilisateur introuvable"),
-        401
-      );
+    // Vérifier si l'utilisateur existe
+    let rows = await Users.findOne({ where: { id: data } });
+    if (rows === null) {
+      return next(new AppOpeError("Droits insuffisants"), 401);
     }
     req.userId = decode.id;
     next();
@@ -148,23 +153,23 @@ exports.auth = async (req, res, next) => {
 exports.forgotPassword = async (req, res, next) => {
   try {
     // Vérifier l'existance de l'utilisateur
-    let sql = "SELECT COUNT(user_id) as nbuser FROM user WHERE user_email = ?";
-    let data = [req.body.mail];
-    let rows = await query(sql, data);
-
-    if (rows.length === 0) {
+    const { mail } = req.body;
+    let user = await Users.findOne({ where: { email: mail } });
+    if (user === null) {
       return next(new AppOpeError("Utilisateur introuvable", 404));
     }
     // Générer un token temporaire à l'utilisateur
     const genToken = generPassword();
+
     // enregistrer les informations du token dans la base
-    sql =
-      "UPDATE user SET user_pwdtoken = ?, user_pwdtokenexp = ? WHERE user_email = ?";
-    data = [genToken.cryptResetToken, genToken.ConvExpireDate, req.body.mail];
-    rows = await query(sql, data);
-    if (rows.affectedRows === 0) {
+    let rows = await Users.update(
+      { key: genToken.cryptResetToken, key_validity: genToken.ConvExpireDate },
+      { where: { email: mail } }
+    );
+    if (rows === null) {
       return next(new AppOpeError("Utilisateur introuvable", 404));
     }
+
     // Envoyer un email de réinitialisation
     // Créer le lien de reset
     const resetURL = `${req.protocol}://${req.get(

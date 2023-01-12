@@ -10,7 +10,7 @@ module.exports = class Email {
     this.to = user.email;
     this.firstname = user.name.split(" ")[0];
     this.url = url;
-    this.from = `ulrich DIE <${process.env.EMAIL_FROM}>`;
+    this.from = `Prototype Apps <${process.env.EMAIL_FROM}>`;
   }
 
   // Méthode de Création de transporteur
