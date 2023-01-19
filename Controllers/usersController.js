@@ -2,23 +2,13 @@
 
 // const promisify = require("util-promisify");
 const AppOpeError = require("../utils/appOpeErrors.js");
+const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const sharp = require("sharp");
-const { Users } = require("../sequelize/models");
-
-// transformer la methode query en promesse
-// const query = promisify(db.query).bind(db);
-
-// Multer storage pour stocker les fichiers images sur le disque au cas ou on n'utilise pas le package "sharp" pour redimensionner le fichier
-// const multerStorage = multer.diskStorage({
-//   destination: (req, file, cb) => {
-//     cb(null, "public/images/users");
-//   },
-//   filename: (req, file, cb) => {
-//     const ext = file.mimetype.split("/")[1];
-//     cb(null, `user-${req.userId}-${Date.now()}.${ext}`);
-//   },
-// });
+const crypto = require("crypto");
+const password = require("secure-random-password");
+const { Users, sequelize } = require("../sequelize/models");
+const mailsend = require("../utils/email");
 
 // Enregistrer l'image en mémoire avec "multer" avant de le transmettre à "sharp" pour le redimensionner avant importation
 const multerStorage = multer.memoryStorage();
@@ -38,6 +28,20 @@ const upload = multer({
   fileFilter: multerFilter,
 });
 
+//Génération de mot de passe utilisateur
+const generUserPassword = () => {
+  const generatedPassword = password.randomPassword({
+    length: 8,
+    characters: [
+      password.upper,
+      password.digits,
+      password.lower,
+      password.symbols,
+    ],
+  });
+  return generatedPassword;
+};
+
 // Middlewear Uploader la photo de l'utilisateur
 exports.uploadUserPhoto = upload.single("photo");
 
@@ -52,7 +56,6 @@ exports.resizeUserPhoto = (req, res, next) => {
     .toFormat("jpeg")
     .jpeg({ quality: 90 })
     .toFile(`public/images/users/${req.file.filename}`);
-
   next();
 };
 
@@ -60,14 +63,13 @@ exports.resizeUserPhoto = (req, res, next) => {
 exports.getAllUsers = async (req, res, next) => {
   try {
     // Requete
-    let sql = "SELECT * FROM user";
-    let rows = await query(sql);
+    let users = await Users.findAll();
     // Response
-    rows[0].user_pwd = undefined;
+    users.password = undefined;
     res.status(200).json({
       status: "success",
-      results: rows.length,
-      data: rows[0],
+      results: users.length,
+      data: users,
     });
   } catch (error) {
     next(new AppOpeError(error, 404));
@@ -76,21 +78,35 @@ exports.getAllUsers = async (req, res, next) => {
 
 // Modifier ses informations personnelles
 exports.updateMe = async (req, res, next) => {
-  // Destructuring
-  const { nom, mail, tel, poste, photo } = req.body;
-  const userId = req.userId;
-  // Requete
-  let sql =
-    "UPDATE user SET user_nom = ?, user_email = ?, user_tel = ?, user_poste = ? user_photo = ? WHERE user_id = ?";
-  let data = [nom, mail, tel, poste, photo, userId];
-  let rows = await query(sql, data);
-  // Reponse
-  res.status(200).json({
-    status: "success",
-    message: "Informations mises à jour avec succès",
-    data: rows,
-  });
   try {
+    // Destructuring
+    const { nom, prenoms, email, tel, adresse, photo } = req.body;
+    const userId = req.userId;
+    // Requete
+    if (photo !== null) {
+      let rows = await Users.update(
+        {
+          nom: nom,
+          prenoms: prenoms,
+          tel: tel,
+          adresse: adresse,
+          photo: photo,
+        },
+        { where: { id: userId } }
+      );
+    } else {
+      let rows = await Users.update(
+        { nom: nom, prenoms: prenoms, tel: tel, adresse: adresse },
+        { where: { id: userId } }
+      );
+    }
+
+    // Reponse
+    res.status(200).json({
+      status: "success",
+      message: "Informations mises à jour avec succès",
+      data: rows,
+    });
   } catch (error) {
     next(new AppOpeError(error, 404));
   }
@@ -99,23 +115,45 @@ exports.updateMe = async (req, res, next) => {
 // Créer utilisateurs
 exports.createUsers = async (req, res, next) => {
   // Destructuring
-  const { nom, mail, tel, poste, photo, profil } = req.body;
-  // Vérifier si l'email est déjà utilisée
-  let sql = "SELECT user_id FROM user WHERE user_email = ?";
-  let data = [mail];
-  let rows = await query(sql, data);
-  if (rows.length > 0) {
-    return next(new AppOpeError("Email déjà utilisée", 404));
-  }
+  const { nom, prenoms, email, tel, adresse, profil } = req.body;
+
   // Générer mot de passe de l'utilisateur
+  const pwd = generUserPassword();
+
+  // Crypter mot de passe
+  const pwdcrypt = await bcrypt.hash(pwd, 12);
+  // erreur en cas ou l'email existe déjà
+  if (!pwdcrypt) {
+    return next(
+      new AppOpeError("Erreur lors de la création de l'utilisateur.", 500)
+    );
+  }
 
   // Enregistrer l'utilisateur
-  sql =
-    "INSERT INTO user (user_nom, user_email, user_tel, user_poste, user_photo, user_profil) VALUES (?, ?, ?, ?, ?, ?)";
-  data = [nom, mail, tel, poste, photo, profil];
-  rows = await query(sql, data);
+  const [rows, created] = await Users.findOrCreate({
+    where: {
+      email: email,
+    },
+    defaults: {
+      password: pwdcrypt,
+      nom: nom,
+      prenoms: prenoms,
+      profil_id: profil,
+      tel: tel,
+      adresse: adresse,
+      user_uuid: crypto.randomUUID(),
+    },
+  });
+  // erreur en cas ou l'email existe déjà
+  if (!created) {
+    return next(new AppOpeError("Email déjà utilisé.", 400));
+  }
 
-  // Envoyer par mail le mot de passe de l'utilisateur
+  // envoi de mail de bienvenue
+  const url = `${req.protocol}://${req.get("host")}}`;
+  console.log(url);
+  const envoiMail = await new Email(user, url).sendWelcome();
+  console.log(envoiMail);
 
   // Reponse
   res.status(200).json({
@@ -133,15 +171,17 @@ exports.createUsers = async (req, res, next) => {
 exports.getUser = async (req, res, next) => {
   try {
     const id = req.params.id;
-    let sql = "SELECT * FROM user WHERE user_id = ?";
-    let data = [id];
-    let rows = await query(sql, data);
+    let user = await Users.findOne({
+      where: {
+        id: id,
+      },
+    });
     // Reponse
-    rows[0].user_pwd = undefined;
+    user.password = undefined;
     res.status(200).json({
       status: "success",
       results: rows.length,
-      data: rows[0],
+      data: user,
     });
   } catch (error) {
     next(new AppOpeError(error, 404));
@@ -152,13 +192,21 @@ exports.getUser = async (req, res, next) => {
 exports.updateUser = async (req, res, next) => {
   try {
     // Destructuring
-    const { nom, mail, tel, poste, photo, profil } = req.body;
+    const { nom, prenoms, email, tel, photo, adresse, profil } = req.body;
     const id = req.params.id;
     // Requete
-    let sql =
-      "UPDATE user SET user_nom = ?, user_email = ?, user_tel = ?, user_poste = ? user_photo = ?, user_profil = ? WHERE user_id = ?";
-    let data = [nom, mail, tel, poste, photo, profil, id];
-    let rows = await query(sql, data);
+    let rows = await Users.update(
+      {
+        nom: nom,
+        prenoms: prenoms,
+        email: mail,
+        tel: tel,
+        adresse: adresse,
+        profil_id: profil,
+        photo: photo,
+      },
+      { where: { id: id } }
+    );
     // Reponse
     res.status(200).json({
       status: "success",
@@ -174,9 +222,11 @@ exports.updateUser = async (req, res, next) => {
 exports.deleteUser = async (req, res, next) => {
   try {
     const id = req.params.id;
-    let sql = "UPDATE user SET user_actif = 0 WHERE user_id = ?";
-    let data = [id];
-    let rows = await query(sql, data);
+    let rows = await Users.destroy({
+      where: {
+        id: id,
+      },
+    });
     // Reponse
     res.status(200).json({
       status: "success",

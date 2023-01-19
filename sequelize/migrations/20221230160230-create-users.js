@@ -64,6 +64,9 @@ module.exports = {
         allowNull: false,
         type: Sequelize.DATE,
       },
+      passchange_at: {
+        type: Sequelize.DATE,
+      },
     });
   },
   async down(queryInterface, Sequelize) {

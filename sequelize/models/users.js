@@ -35,6 +35,7 @@ module.exports = (sequelize, DataTypes) => {
       dcnx_date: DataTypes.DATE,
       key: DataTypes.STRING,
       key_validity: DataTypes.DATE,
+      passchange_at: DataTypes.DATE,
     },
     {
       indexes: [

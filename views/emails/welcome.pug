@@ -6,9 +6,11 @@ block content
       table(role='presentation' border='0' cellpadding='0' cellspacing='0')
         tr
           td
-            p Hi #{firstname},
+            p Bonjour, #{firstname},
             p
-              | Sometimes you just want to send a simple HTML email with a simple design and clear call to action. This is it.
+              | Votre compte à été créé avec succès. vous pouvez vous connecter en cliquant sur le bouton ci-dessous.
+            p
+              | Cordialement,
             table.btn.btn-primary(role='presentation' border='0' cellpadding='0' cellspacing='0')
               tbody
                 tr
@@ -17,7 +19,8 @@ block content
                       tbody
                         tr
                           td
-                            a(href=`${url}` target='_blank') Call To Action
+                            a(href=`${url}` target='_blank') connectez vous
             p
-              | This is a really simple email template. Its sole purpose is to get the recipient to click the button with no distractions.
-            p Good luck! Hope it works.
+              | Ce mail à été envoyé depuis l'application Prototype Apps.
+            p 
+              | Cordialement.

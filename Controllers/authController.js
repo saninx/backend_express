@@ -8,13 +8,13 @@ const AppOpeError = require("../utils/appOpeErrors.js");
 const crypto = require("crypto");
 const Email = require("./../utils/email.js");
 const moment = require("moment");
-const { Users } = require("../sequelize/models");
+const { Users, sequelize } = require("../sequelize/models");
 
 // transformer la methode query en promesse
 // const query = promisify(db.query).bind(db);
 
 //Génération de token
-const generPassword = () => {
+const generToken = () => {
   // Générer token
   const resetToken = crypto.randomBytes(32).toString("hex");
   // crypter token généré qui sera enregistré dans la base
@@ -54,7 +54,7 @@ const creatSendToken = (user, statusCode, res) => {
   // Envoyer le token par cookie
   res.cookie("jwt", token, cookieOptions);
 
-  user.password = undefined;
+  user.password = null;
   res.status(statusCode).json({
     status: "success",
     token,
@@ -68,10 +68,13 @@ const creatSendToken = (user, statusCode, res) => {
 exports.signup = async (req, res, next) => {
   try {
     // Destructuring
-    req.body.pwdcrypt = await bcrypt.hash(req.body.password, 12);
     const { nom, prenoms, profil, email, tel, adresse, pwdcrypt } = req.body;
+
+    // Crypter mot de passe
+    req.body.pwdcrypt = await bcrypt.hash(req.body.password, 12);
+
     // Créer l'utilisateur s'il n'existe pas l'email
-    const [rows, created] = await Users.findOrCreate({
+    const [user, created] = await Users.findOrCreate({
       where: {
         email: email,
       },
@@ -87,13 +90,27 @@ exports.signup = async (req, res, next) => {
     });
     // erreur en cas ou l'email existe déjà
     if (!created) {
-      return next(new AppOpeError("Email déjà utilisée.", 400));
+      return next(new AppOpeError("Email déjà utilisé.", 400));
     }
+
+    // envoi de mail de bienvenue
+    // Url de redirection
+    const url = `${req.protocol}://${req.get("host")}}`;
+    // Fichier joint
+    const join1 = `${__dirname}/../public/documents/Document test.txt`;
+    const join2 = `${__dirname}/../public/documents/Pdf test.pdf`;
+
+    const attach = [
+      { filename: "Documents de souscription.txt", path: join1 },
+      { filename: "Documents de souscription.pdf", path: join2 },
+    ];
+    const envoiMail = await new Email(user, url, attach).sendWelcome();
+
     // Response
     res.status(201).json({
       status: "success",
       message: "utilisateur enregistré",
-      data: rows,
+      data: user,
     });
   } catch (error) {
     return next(new AppOpeError(error, 404));
@@ -131,18 +148,18 @@ exports.auth = async (req, res, next) => {
     }
     // Token introuvable
     if (!token) {
-      return next(new AppOpeError("Droits insuffisants, token incorrect", 401));
+      return next(new AppOpeError("Token incorrect", 401));
     }
 
     // Valider le token
     const decode = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
-    let data = [decode.id];
+
     // Vérifier si l'utilisateur existe
-    let rows = await Users.findOne({ where: { id: data } });
-    if (rows === null) {
+    const user = await Users.findOne({ where: { id: decode.id } });
+    if (user === null) {
       return next(new AppOpeError("Droits insuffisants"), 401);
     }
-    req.userId = decode.id;
+    req.userId = user.id;
     next();
   } catch (error) {
     return next(new AppOpeError(error, 404));
@@ -152,14 +169,14 @@ exports.auth = async (req, res, next) => {
 // Gestion de la demande de nouveau mot de passe
 exports.forgotPassword = async (req, res, next) => {
   try {
-    // Vérifier l'existance de l'utilisateur
     const { mail } = req.body;
+    // Vérifier l'existance de l'utilisateur
     let user = await Users.findOne({ where: { email: mail } });
     if (user === null) {
       return next(new AppOpeError("Utilisateur introuvable", 404));
     }
     // Générer un token temporaire à l'utilisateur
-    const genToken = generPassword();
+    const genToken = generToken();
 
     // enregistrer les informations du token dans la base
     let rows = await Users.update(
@@ -180,7 +197,7 @@ exports.forgotPassword = async (req, res, next) => {
 
     try {
       await Email({
-        email: req.body.mail,
+        email: mail,
         subject: "Réinitialisation de mot de passe",
         message,
       });
@@ -191,10 +208,10 @@ exports.forgotPassword = async (req, res, next) => {
       });
     } catch (error) {
       // En cas d'erreur d'envoi remettre les informations de réinitilisation PWD du user en l'état
-      sql =
-        "UPDATE user SET user_pwdtoken = ?, user_pwdtokenexp = ? WHERE user_email = ?";
-      data = [undefined, undefined, req.body.mail];
-      rows = await query(sql, data);
+      rows = await Users.update(
+        { key: null, key_validity: null },
+        { where: { email: mail } }
+      );
       return next(new AppOpeError(error, 404));
     }
   } catch (error) {
@@ -209,16 +226,17 @@ exports.resetPassword = async (req, res, next) => {
     let token = req.params.token;
     req.body.pwdcrypt = await bcrypt.hash(req.body.pwd, 12);
     const cryptToken = crypto.createHash("sha256").update(token).digest("hex");
-    // rechercher l'existance de l'utilisateur et vérifier le token
-    let sql =
-      "SELECT * FROM user WHERE user_pwdtoken = ? AND user_pwdtokenexp > NOW()";
-    let data = [cryptToken];
-    let rows = await query(sql, data);
-    if (rows.length === 0) {
+    let user = await Users.findOne({
+      where: {
+        key: cryptToken,
+        key_validity: sequelize.literal("CURRENT_TIMESTAMP"),
+      },
+    });
+    if (user === null) {
       return next(new AppOpeError("Lien invalide ou expiré"), 400);
     }
     // Vérifier la différence des passwords
-    if (await bcrypt.compare(req.body.pwd, rows[0].user_pwd)) {
+    if (await bcrypt.compare(req.body.pwd, user.password)) {
       return next(
         new AppOpeError(
           "Votre nouveau mot de passe doit être différent l'ancien"
@@ -230,17 +248,20 @@ exports.resetPassword = async (req, res, next) => {
     const pwdChangeDate = moment(Date.now() - 1000).format(
       "YYYY-MM-DD HH:mm:ss"
     );
-    sql =
-      "UPDATE user SET user_pwd = ?, user_pwdtoken = ?, user_pwdtokenexp = ?, user_pwdchangedate = ? WHERE user_id = ?";
-    data = [
-      req.body.pwdcrypt,
-      undefined,
-      undefined,
-      pwdChangeDate,
-      rows[0].user_id,
-    ];
-    rows = await query(sql, data);
-    if (rows.affectedRows === 0) {
+    rows = await Users.update(
+      {
+        password: req.body.pwdcrypt,
+        key: null,
+        key_validity: null,
+        passchange_at: pwdChangeDate,
+      },
+      {
+        where: {
+          id: user.id,
+        },
+      }
+    );
+    if (rows === 0) {
       return next(
         new AppOpeError("Echec de le réinitilisation, veuillez réssayer."),
         400
@@ -260,21 +281,23 @@ exports.updatePassword = async (req, res, next) => {
     const { pwd, pwd1 } = req.body;
     const userId = req.userId;
     // Requete
-    let sql = "SELECT * FROM user WHERE user_id = ?";
-    let data = [userId];
-    let rows = await query(sql, data);
+    const user = await Users.findOne({ where: { id: userId } });
     // Controller si l'utilisateur existe et le mot de passe actuel est correcte
-    if (rows.length === 0 || !(await bcrypt.compare(pwd, rows[0].user_pwd))) {
+    if (user === null || !(await bcrypt.compare(pwd, user.password))) {
       return next(new AppOpeError("Mot de passe courant incorrect"), 400);
     }
     // Crypter et enregistrer le noveau mot de passe
     const pwdcrypt = await bcrypt.hash(pwd1, 12);
     // Mettre à jour le mot de passe de l'utilisateur
     const dTime = moment(Date.now()).format("YYYY-MM-DD HH:mm:ss");
-    sql =
-      "UPDATE user SET user_pwd = ?, user_pwdchangedate = ? WHERE user_id = ?";
-    data = [pwdcrypt, dTime, userId];
-    rows = await query(sql, data);
+
+    const rows = await Users.update(
+      { password: pwdcrypt, passchange_at: dTime },
+      { where: { id: userId } }
+    );
+    if (!rows) {
+      return next(new AppOpeError("Echec de la mise à jour"), 500);
+    }
     // Reponse
     res.status(200).json({
       status: "success",

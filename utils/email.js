@@ -6,11 +6,12 @@ const htmlToText = require("html-to-text");
 
 // Class de gestion des emails
 module.exports = class Email {
-  constructor(user, url) {
+  constructor(user, url, fichierjoint = []) {
     this.to = user.email;
-    this.firstname = user.name.split(" ")[0];
+    this.name = user.nom + " " + user.prenoms;
     this.url = url;
     this.from = `Prototype Apps <${process.env.EMAIL_FROM}>`;
+    this.attachments = fichierjoint;
   }
 
   // Méthode de Création de transporteur
@@ -34,9 +35,9 @@ module.exports = class Email {
   async send(template, subject) {
     // 1- récupérer le template pug
     const html = pug.renderFile(
-      `${__dirname}/../../views/emails/${template}.pug`,
+      `${__dirname}/../views/emails/${template}.pug`,
       {
-        firstname: this.firstname,
+        firstname: this.name,
         url: this.url,
         subject,
       }
@@ -51,6 +52,13 @@ module.exports = class Email {
       text: htmlToText.convert(html, {
         wordwrap: 130,
       }),
+      attachments: this.attachments,
+      // [
+      //   {
+      //     filename: "text1.txt",
+      //     path: "/path/to/file.txt",
+      //   },
+      // ],
     };
 
     // 3- créer le transporteur et envoyer le mail
@@ -58,7 +66,7 @@ module.exports = class Email {
   }
 
   // Methode d'envoi de mail d'inscription
-  async sendWelcom() {
+  async sendWelcome() {
     await this.send(
       "welcome",
       "Bienvenue, votre compte a été créé avec succès !"
